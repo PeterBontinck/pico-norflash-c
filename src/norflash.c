@@ -5,13 +5,15 @@
 #endif
 
 #include <stdio.h>
-#include "norflash.h"
+#include "include/norflash.h"
 #include "norflash_cmd.h"
 #include "hardware/spi.h"
 #include "pico/stdlib.h"
 #include "string.h"
 //TODO, improuve for prd Write validation before / after
 //TODO, support 4bit adderssing support for  256Mbit chips
+
+
 
 
 //to calculate the max adress : (result<<4) - 1 

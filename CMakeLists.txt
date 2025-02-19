@@ -37,35 +37,5 @@ project(NandFlashTest C CXX ASM)
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Add executable. Default name is the project name, version 0.1
-
-add_executable(NandFlashTest
-NandFlashTest.c
-norflash.c
-)
-
-pico_set_program_name(NandFlashTest "NandFlashTest")
-pico_set_program_version(NandFlashTest "0.1")
-
-# Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(NandFlashTest 1)
-pico_enable_stdio_usb(NandFlashTest 0)
-
-# Add the standard library to the build
-target_link_libraries(NandFlashTest
-        pico_stdlib)
-
-# Add the standard include files to the build
-target_include_directories(NandFlashTest PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
-)
-
-# Add any user requested libraries
-target_link_libraries(NandFlashTest 
-        hardware_spi
-        hardware_dma
-        
-        )
-
-pico_add_extra_outputs(NandFlashTest)
-
+add_subdirectory("src")
+add_subdirectory("examples")
