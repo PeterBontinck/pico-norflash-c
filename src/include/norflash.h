@@ -2,7 +2,6 @@
 #define NORFLASH_H
 
 #include "hardware/spi.h"
-#include "norflash_structs.h"
 
 #ifndef NORFLASH_SPI_PORT
 #define NORFLASH_SPI_PORT spi1
@@ -18,6 +17,19 @@
 
 #define NORFLASH_PIN_SCK (NORFLASH_PIN_RX + 2)
 #define NORFLASH_PIN_TX (NORFLASH_PIN_RX + 3)
+
+
+typedef struct norflash
+{    
+    uint baudrate;
+    bool init_ok;
+    uint max_addr;
+    uint addr_len;
+    uint8_t page_buffer[256];
+    uint8_t page_len;
+
+} norflash_t;
+
 
 typedef struct norflash norflash_t;
 

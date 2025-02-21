@@ -2,7 +2,7 @@
 #include "pico/stdlib.h"
 #include "norflash.h"
 
-#define ADRR_TO_WRITE 0x940u
+#define ADRR_TO_WRITE 0x1001u
 
 int main()
 {
@@ -11,7 +11,7 @@ int main()
     stdio_init_all();
     norflash_init(&w25q128jv, 1000 * 1000);
 
-    // norflash_chip_erase(&w25q128jv);
+    //norflash_chip_erase(&w25q128jv);
 
     uint8_t test_buff[256];
 

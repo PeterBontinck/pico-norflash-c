@@ -16,6 +16,11 @@
 //TODO, support 4bit adderssing support for  256Mbit chips
 
 
+typedef struct {
+    uint8_t buf[5];
+  } cmd_buf_t;
+
+
 //to calculate the max adress : (result<<4) - 1 
 uint cmd9Fh_to_max_addr(uint8_t cmd9Fh_density){   
     switch (cmd9Fh_density)
@@ -34,6 +39,20 @@ uint cmd9Fh_to_max_addr(uint8_t cmd9Fh_density){
 }
 
 
+static inline cmd_buf_t encode_cmd_addr(norflash_t *self, uint8_t cmd, uint flashMemAddr){
+
+    assert(flashMemAddr<= self->max_addr);
+
+    cmd_buf_t cmd_addr = {{0}};
+    
+    cmd_addr.buf[0] = cmd;
+    cmd_addr.buf[1] = (flashMemAddr&0xFF0000u)>>16;
+    cmd_addr.buf[2] = (flashMemAddr&0x00FF00u)>>8;
+    cmd_addr.buf[3] = flashMemAddr&0x0000FFu ;
+    
+    return cmd_addr;
+}
+
 static inline void cs_select() {
     asm volatile("nop \n nop \n nop");
     gpio_put(NORFLASH_PIN_CS, 0);  // Active low
@@ -46,37 +65,39 @@ static inline void cs_deselect() {
     asm volatile("nop \n nop \n nop");
 }
 
-static void norflash_get(norflash_t *self, uint8_t *out_buff, size_t out_len){
+static void norflash_get(norflash_t *self, uint8_t cmd,  uint8_t *out_buff, size_t out_len){
+    
+    //uint8_t *cmd_pt = cmd; 
     cs_select();
-    spi_write_blocking(NORFLASH_SPI_PORT, self->cmd_addr.buffer,1);
+    spi_write_blocking(NORFLASH_SPI_PORT, &cmd,1);
     spi_read_blocking(NORFLASH_SPI_PORT,0,out_buff,out_len);
     cs_deselect();
 }
 
-static void norflash_send_cmd(norflash_t *self){
+static void norflash_send_cmd(norflash_t *self, uint8_t cmd){
     cs_select();
-    spi_write_blocking(NORFLASH_SPI_PORT, self->cmd_addr.buffer, 1);
+    spi_write_blocking(NORFLASH_SPI_PORT, &cmd, 1);
     cs_deselect();
 }
 
-static int norflash_validate(norflash_t *self, uint8_t *source_pt, size_t len , bool inc, bool exhaustive){
+static int norflash_validate(norflash_t *self, uint start_add,  uint8_t *source_pt, size_t len , bool inc, bool exhaustive){
     uint inc_val = (inc)? 1 : 0; 
     uint8_t *validation_pt = source_pt;
     int exception = PICO_OK;
     
-    self->cmd_addr.items.cmd = NORFLASH_CMD_FAST_READ;
+    cmd_buf_t cmd_add = encode_cmd_addr(self, NORFLASH_CMD_FAST_READ, start_add);
 
     cs_select();
-    spi_write_blocking(NORFLASH_SPI_PORT, self->cmd_addr.buffer ,1+3+1); //1 byte cmd + 3 byte addr + 1 byte dummy for fast read
+    spi_write_blocking(NORFLASH_SPI_PORT, cmd_add.buf, 1+3+1); //1 byte cmd + 3 byte addr + 1 byte dummy for fast read
     for(uint i=0; i<len; i++){
         uint8_t temp;
         spi_read_blocking(NORFLASH_SPI_PORT, 0, &temp, 1);
         if (temp != *validation_pt){
             exception = PICO_ERROR_GENERIC;
             printf("Validation Error data in: #%02x%02x%02x + #%02x is #%02x. #%02x was expected\n", 
-                self->cmd_addr.items.addr[0],
-                self->cmd_addr.items.addr[1],
-                self->cmd_addr.items.addr[2],
+                cmd_add.buf[1],
+                cmd_add.buf[2],
+                cmd_add.buf[3],
                 i,
                 temp,
                 *validation_pt
@@ -93,42 +114,22 @@ static int norflash_validate(norflash_t *self, uint8_t *source_pt, size_t len , 
 
 
 void write_enable(norflash_t *self){
-    self->cmd_addr.items.cmd = NORFLASH_CMD_WR_EN;
-    norflash_send_cmd(self);
+    norflash_send_cmd(self,NORFLASH_CMD_WR_EN);
 }
 
 static void wait_for_ready(norflash_t *self){
-
-    bool busy = true;
-    
-    while (busy) {
-        self->cmd_addr.items.cmd = NORFLASH_CMD_RD_STATUS1;
-        uint8_t status;
-        norflash_get(self, &status, 1);
-       
-        busy = (bool)(status & (1u << NORFLASH_BUSSY_BIT));
-       }
+    uint8_t status;
+    do{
+        norflash_get(self,NORFLASH_CMD_RD_STATUS1, &status, 1);
+     }while (status & (1u << NORFLASH_BUSSY_BIT));
 }
-
-static void encode_address(norflash_t *self, uint flashMemAddr){
-
-    assert(flashMemAddr<= self->max_addr);
-    
-    self->cmd_addr.items.addr[0] = (flashMemAddr&((0xFF0000u)))>>16;
-    self->cmd_addr.items.addr[1] = (flashMemAddr&((0x00FF00u)))>>8;
-    self->cmd_addr.items.addr[2] = flashMemAddr&((0x0000FFu));
-    self->cmd_addr.items.addr[3] = 0; 
-    }
-
-
 
 void norflash_chip_erase(norflash_t *self){
     assert(self->init_ok);
     
     write_enable(self);
 
-    self->cmd_addr.items.cmd = NORFLASH_CMD_CHIP_ERASE;
-    norflash_send_cmd(self);
+    norflash_send_cmd(self,NORFLASH_CMD_CHIP_ERASE);
 
     printf("Erasing  chip (+-40sec) .... ");
     wait_for_ready(self);
@@ -141,9 +142,6 @@ int norflash_init(norflash_t *self,  uint baudrate){
 
     memset((void*) self,0, sizeof(self));
     self->baudrate = baudrate;
-    self->validate_before_wr = true;
-    self->validate_after_wr = true;
-
 
     spi_init(NORFLASH_SPI_PORT, baudrate);   
     gpio_set_function(NORFLASH_PIN_RX, GPIO_FUNC_SPI);
@@ -152,22 +150,24 @@ int norflash_init(norflash_t *self,  uint baudrate){
 
     gpio_set_function(NORFLASH_PIN_CS,   GPIO_FUNC_SIO);
     gpio_set_dir(NORFLASH_PIN_CS, GPIO_OUT);
+     
+    struct device_s {
+        uint8_t mfg_id;
+        uint8_t type;
+        uint8_t density;
+    } device;
 
-    self->cmd_addr.items.cmd = NORFLASH_CMD_JEDEC_ID;
-       
-    norflash_get(self,self->page_buffer,3);
+    norflash_get(self,NORFLASH_CMD_JEDEC_ID, &device.mfg_id, sizeof(device));
+ 
+    self->max_addr = cmd9Fh_to_max_addr(device.density);
 
-    uint8_t mfg_id =  self->page_buffer[0];
-    self->max_addr = cmd9Fh_to_max_addr(self->page_buffer[2]);
-    self->addr_len = 3;
-
-    if (self->max_addr == 0 || mfg_id == 0 ){
-        printf("failed to initialise Norflash, return of cmd 9Fh : #%02x,#%02x,#%02x\n",self->page_buffer[0],self->page_buffer[1],self->page_buffer[2] );
+    if (self->max_addr == 0 || device.mfg_id == 0 ){
+        printf("failed to initialise Norflash, return of cmd 9Fh : #%02x,#%02x,#%02x\n",device.mfg_id,device.type,device.density );
         assert(false);
         return PICO_ERROR_GENERIC;
     }
 
-    printf("Norflash initialised, %d Bytes chip found of Manufacturer-ID = #%02x\n", self->max_addr+1, mfg_id );
+    printf("Norflash initialised, %d Bytes chip found of Manufacturer-ID = #%02x\n", self->max_addr+1, device.mfg_id );
 
 
     if (self->max_addr > 0xFFFFFFu ){
@@ -182,11 +182,11 @@ int norflash_init(norflash_t *self,  uint baudrate){
 
 int norflash_read_blocking(norflash_t *self, uint flash_addr, void* out_buffer, uint len){
     assert(self->init_ok);
-    self->cmd_addr.items.cmd = NORFLASH_CMD_FAST_READ;
-    encode_address(self, flash_addr);
+    
+    const cmd_buf_t cmd_addr = encode_cmd_addr(self, NORFLASH_CMD_FAST_READ, flash_addr);
     
     cs_select();
-    spi_write_blocking(NORFLASH_SPI_PORT, self->cmd_addr.buffer ,1+3+1); //1 byte cmd + 3 byte addr + 1 byte dummy
+    spi_write_blocking(NORFLASH_SPI_PORT, cmd_addr.buf, 1+3+1); //1 byte cmd + 3 byte addr + 1 byte dummy
     spi_read_blocking(NORFLASH_SPI_PORT, 0, out_buffer, len);
     cs_deselect();
 }
@@ -195,39 +195,36 @@ int norflash_read_blocking(norflash_t *self, uint flash_addr, void* out_buffer, 
 int norflash_write_page(norflash_t *self, uint flash_addr, uint len){
     assert(self->init_ok);
 
-    encode_address(self, flash_addr);
-
     uint in_page_addr = flash_addr & 0xFFu;
-    printf(" #%02x < len %d \n",(0xFFu - in_page_addr), len);
-    if ((0xFFu - in_page_addr) < len){
+
+    if (((0xFFu - in_page_addr) < len-1)){ // len -1 for zero index of adr
         printf("ERROR : Page will overflow, aborting write operation! in_page_addr: #%02x , len %d \n",in_page_addr, len);
-        return PICO_ERROR_GENERIC;
+        //return PICO_ERROR_GENERIC;
     }
    
     uint8_t empty = 0xFF;
-    
-    if (0 > norflash_validate(self,&empty,len,false,true)){
+    if (0 > norflash_validate(self,flash_addr,&empty,len,false,true)){
         printf("ERROR : Page not empty, aborting write operation\n");
-        return PICO_ERROR_GENERIC;
+        //return PICO_ERROR_GENERIC;
     }
 
-    write_enable(self);
-
-    self->cmd_addr.items.cmd = NORFLASH_CMD_PAGE_PROG;  
+    const cmd_buf_t cmd_addr = encode_cmd_addr(self, NORFLASH_CMD_PAGE_PROG, flash_addr);
     
+    write_enable(self);
+ 
     cs_select();
-    spi_write_blocking(NORFLASH_SPI_PORT, self->cmd_addr.buffer, 1+3); //1 byte cmd + 3 byte addr
+    spi_write_blocking(NORFLASH_SPI_PORT, cmd_addr.buf, 1+3); //1 byte cmd + 3 byte addr
     spi_write_blocking(NORFLASH_SPI_PORT, self->page_buffer, len);
     cs_deselect();
 
     wait_for_ready(self);
 
-    if (0 > norflash_validate(self,self->page_buffer,len,true,true)){
-        printf("ERROR : Write unsuccesfull!, data corrupted\n");
+    if (0 > norflash_validate(self, flash_addr, self->page_buffer, len, true, true)){
+        printf("ERROR : Write unsuccessful!, data corrupted\n");
         return PICO_ERROR_GENERIC;
     }
 
-    printf("%d bytes written to #%02x%02x%02x \n", len,self->cmd_addr.items.addr[0],self->cmd_addr.items.addr[1],self->cmd_addr.items.addr[2]);
+    printf("%d bytes written to #%02x%02x%02x \n", len,cmd_addr.buf[1],cmd_addr.buf[2],cmd_addr.buf[3]);
 
     return PICO_OK;
 }
