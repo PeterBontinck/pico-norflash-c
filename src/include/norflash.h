@@ -18,6 +18,19 @@
 #define NORFLASH_PIN_SCK (NORFLASH_PIN_RX + 2)
 #define NORFLASH_PIN_TX (NORFLASH_PIN_RX + 3)
 
+#define DEBUG_PIN_A 10
+
+typedef void(*norflash_rd_callback_t) (void);
+
+typedef struct norflash_dma{
+    uint ch_tx;
+    uint ch_rx;
+    void *next_dst_pt;
+    uint sizeof_struct;
+    norflash_rd_callback_t callback;
+    uint reads_left;
+    bool first_run;
+}norflash_dma_t;
 
 typedef struct norflash
 {    
@@ -27,11 +40,13 @@ typedef struct norflash
     uint addr_len;
     uint8_t page_buffer[256];
     uint8_t page_len;
-
+    norflash_dma_t dma;
 } norflash_t;
 
 
-typedef struct norflash norflash_t;
+norflash_t* norflash_get_pt_singleton_chip1();
+
+
 
 /*! \brief  Initaliases the SPI norflash via a 1xSPI and tests the interface by queryin the device characteristics.
  *
@@ -82,5 +97,35 @@ int norflash_write_page(norflash_t *self, uint flash_addr, uint len);
 *   \return enum pico_error_codes
 */
 int norflash_read_blocking(norflash_t *self, uint flash_addr, void *out_buffer, uint len);
+
+/*! \brief  Setup and start a repeated dma-read of a data structure type.
+*           The next norflash address is incremented after every read.
+*           Calls back after first data structure is read from norflash.
+*   \note   - Use \b norflash_next_async_read() in callback to initiate the next read.  
+*   \note   - Use \b norflash_abort_async_read() to stop the repeated dma-read early.
+*   \note   - The spi norflash nCS (Chip Select) remains active until the last data is read or aborted.       
+*   \param  flash_addr 3 byte starting norflash address to write to.
+*   \param  struct_size sizeof(data_structure_type_to_read)
+*   \param  dst Destination buffer to write to. Will be over written on each repetition.
+*   \param  irq_callback function called when new data is available.
+*   \param  num_strucs_to_read number of repeated dma-reads of the data structure type
+*/
+int norflash_start_async_read(
+    uint flash_addr,
+    uint struct_size,
+    void *dst,
+    norflash_rd_callback_t irq_callback,
+    uint num_strucs_to_read
+);
+
+/*! \brief  Used in the callback of \b norflash_start_async_read(), to get the next data structure.
+*/
+void norflash_next_async_read();
+/*! \brief  Used after a \b norflash_start_async_read() , 
+*   to abort before the given the number of repeated dma-reads .
+*/
+void norflash_abort_async_read();
+
+void print_byte_buffer(uint8_t *buf, uint len, uint rows);
 
 #endif

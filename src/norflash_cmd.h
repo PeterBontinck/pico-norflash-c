@@ -12,3 +12,5 @@
 
 #define NORFLASH_BUSSY_BIT 0u
 #define NORFLASH_WEL_BIT 1u
+
+#define NORFLASH_FAST_READ_CMDBUF_LEN 5 //1 cmd + 3 add + 1 dummy

@@ -41,7 +41,8 @@
         "dma.h": "c",
         "w25q128jv.h": "c",
         "norflash.h": "c",
-        "cstdint": "c"
+        "cstdint": "c",
+        "random": "c"
     },
     "cSpell.words": [
         "norflash"
