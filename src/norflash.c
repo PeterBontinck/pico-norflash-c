@@ -144,6 +144,16 @@ void norflash_chip_erase(norflash_t *self){
     printf(" READY !\n");
 }
 
+void end_dma_read(norflash_t *self){
+    irq_set_enabled(DMA_IRQ_0, false);
+    irq_remove_handler(DMA_IRQ_0, norflash_next_async_read);
+    dma_channel_cleanup(self->dma.ch_rx);
+    dma_channel_cleanup(self->dma.ch_tx);
+    memset(&self->dma, 0, sizeof(self->dma));
+    printf("dma cleaned up\n");
+    cs_deselect();
+}
+
 void print_byte_buffer(uint8_t *buf, uint len, uint rows){
     for (uint i = 0; i < len ; i++)
     {   
@@ -155,7 +165,8 @@ void print_byte_buffer(uint8_t *buf, uint len, uint rows){
     printf("\n");
 }
 
-int norflash_init(norflash_t *self,  uint baudrate){
+int norflash_init(uint baudrate){
+    norflash_t *self = &chip1_singleton;
 
     memset((void*) self,0, sizeof(self));
     self->baudrate = baudrate;
@@ -168,7 +179,6 @@ int norflash_init(norflash_t *self,  uint baudrate){
     gpio_set_function(NORFLASH_PIN_CS,   GPIO_FUNC_SIO);
     gpio_set_dir(NORFLASH_PIN_CS, GPIO_OUT);
 
-    gpio_put(DEBUG_PIN_A, 1);
     cs_deselect();
      
     struct device_s {
@@ -200,7 +210,8 @@ int norflash_init(norflash_t *self,  uint baudrate){
     return PICO_OK;
 }
 
-int norflash_read_blocking(norflash_t *self, uint flash_addr, void* out_buffer, uint len){
+int norflash_read_blocking(uint flash_addr, void* out_buffer, uint len){
+    norflash_t *self = &chip1_singleton;
     assert(self->init_ok);
     
     const cmd_buf_t cmd_addr = encode_cmd_addr(self, NORFLASH_CMD_FAST_READ, flash_addr);
@@ -212,17 +223,19 @@ int norflash_read_blocking(norflash_t *self, uint flash_addr, void* out_buffer, 
 }
 
 
-int norflash_write_page(norflash_t *self, uint flash_addr, uint len){
+int norflash_write_page(uint flash_addr, uint len){
+    norflash_t *self = &chip1_singleton;
+
     assert(self->init_ok);
 
     uint in_page_addr = flash_addr & 0xFFu;
 
-    if (((0xFFu - in_page_addr) < len-1)){ // len -1 for zero index of adr
+    if (((NORFLASH_PAGE_SIZE - in_page_addr) < len)){
         printf("ERROR : Page will overflow, aborting write operation! in_page_addr: #%02x , len %d \n",in_page_addr, len);
         return PICO_ERROR_GENERIC;
     }
    
-    uint8_t empty = 0xFF;
+    uint8_t empty = NORFLASH_EMPTY_BYTE_VAL;
     if (0 > norflash_validate(self,flash_addr,&empty,len,false,true)){
         printf("ERROR : Page not empty, aborting write operation\n");
         return PICO_ERROR_GENERIC;
@@ -256,73 +269,74 @@ int norflash_start_async_read(
     void *dst,
     norflash_rd_callback_t irq_callback,
     uint num_strucs_to_read
-){
-    
-    
+){   
     norflash_t *self = &chip1_singleton;
 
     self->dma.sizeof_struct = struct_size;
-    self->dma.next_dst_pt = dst;
+    self->dma.dst_pt = dst;
     self->dma.callback = irq_callback;
     self->dma.reads_left = num_strucs_to_read;
-
     self->dma.ch_tx = dma_claim_unused_channel(true);
     self->dma.ch_rx = dma_claim_unused_channel(true);
     self->dma.first_run = true;
     
-    //setup dma to wait for TX to finish. We wait for dummy bytes to be received in sync to TX.
-
+    //setup RX-dma to wait for TX to finish. We wait for dummy bytes to be received when SCK is ticking on TX.
     dma_channel_config c = dma_channel_get_default_config(self->dma.ch_rx);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_dreq(&c, spi_get_dreq(NORFLASH_SPI_PORT, false));
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, false); //during cmd add dummy phase we write to dummy
-
-    int8_t dummy;
     dma_channel_configure(self->dma.ch_rx, &c,
-        &dummy, // write address
+        NULL, // discard the received bytes on TX
         &spi_get_hw(NORFLASH_SPI_PORT)->dr, // read address
         NORFLASH_FAST_READ_CMDBUF_LEN, 
         false); // don't start yet   
 
     dma_channel_set_irq0_enabled(self->dma.ch_rx, true);
     irq_set_exclusive_handler(DMA_IRQ_0, norflash_next_async_read);
-    irq_set_enabled(DMA_IRQ_0, true);
+
+    if((self->dma.ch_rx < 0) || (self->dma.ch_tx < 0)){
+        printf("ERROR norflash async read, not enough dma channels free\n");
+        end_dma_read(self);
+        return PICO_ERROR_INSUFFICIENT_RESOURCES;
+    }
+    if ((flash_addr + struct_size * num_strucs_to_read)> self->max_addr) {
+        printf("ERROR norflash async read, addres will overflow (#%06x + %d * %d) > #%x\n",
+            flash_addr, struct_size, num_strucs_to_read, self->max_addr);
+        end_dma_read(self);
+        return PICO_ERROR_INVALID_ADDRESS;
+    }
 
     cmd_buf_t cmd_addr = encode_cmd_addr(self, NORFLASH_CMD_FAST_READ, flash_addr);
     
-    // sure the RX register is empty and the SPI bus is not busy.
+    // make sure the RX register is empty and the SPI bus is not busy.
     while (spi_is_readable(NORFLASH_SPI_PORT))
         (void)spi_get_hw(NORFLASH_SPI_PORT)->dr;
-
     while (spi_is_busy(NORFLASH_SPI_PORT)) 
-        tight_loop_contents();
-    
+        tight_loop_contents();  
     while (spi_is_readable(NORFLASH_SPI_PORT))
         (void)spi_get_hw(NORFLASH_SPI_PORT)->dr;
 
-    // Lets go... send the Cmd + Adr + Dummy for fast read. 
-    
+    // Lets go... send the Cmd + Adr + Dummy for fast read (no DMA for this TX)
+    irq_set_enabled(DMA_IRQ_0, true);
     dma_channel_start(self->dma.ch_rx);
-    
-    cs_select();
-    gpio_put(DEBUG_PIN_A, 0);
+        cs_select();
     for (size_t i = 0; i < NORFLASH_FAST_READ_CMDBUF_LEN; ++i) {
          spi_get_hw(NORFLASH_SPI_PORT)->dr = (uint32_t)cmd_addr.buf[i];
     }
     
-    // norflash_next_async_read() will be called when so setup DMA for the first Read
+    // now wait for IRQ ... norflash_next_async_read() will be called, to setup DMA for the first Read
     return PICO_OK;
 }
 
 void norflash_next_async_read(){
-
     norflash_t *self = &chip1_singleton;
 
     // Clear the interrupt request.
     dma_hw->ints0 = 1u << self->dma.ch_rx;
- 
+    
     if(self->dma.first_run){
+        //one-time Setup:  TX-dma, to tick SCK so we can receive.
         dma_channel_config c = dma_channel_get_default_config(self->dma.ch_tx);
         channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
         channel_config_set_dreq(&c, spi_get_dreq(NORFLASH_SPI_PORT, true));
@@ -330,52 +344,42 @@ void norflash_next_async_read(){
         channel_config_set_write_increment(&c, false); 
         dma_channel_configure(self->dma.ch_tx, &c,
                           &spi_get_hw(NORFLASH_SPI_PORT)->dr, // write address
-                          self->page_buffer, // read address
+                          NULL, // don't care data on TX, only SCK needs to tick.
                           self->dma.sizeof_struct, // element count (each element is of size transfer_data_size)
                           false); // don't start yet
 
-
+        //one-time Setup:  RX-dma
         c = dma_channel_get_default_config(self->dma.ch_rx);
         channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
         channel_config_set_dreq(&c, spi_get_dreq(NORFLASH_SPI_PORT, false));
         channel_config_set_read_increment(&c, false);
         channel_config_set_write_increment(&c, true);
-
         dma_channel_configure(self->dma.ch_rx, &c,
-            self->dma.next_dst_pt, // write address
+            self->dma.dst_pt, // write address
             &spi_get_hw(NORFLASH_SPI_PORT)->dr, // read address
             self->dma.sizeof_struct, 
             false); // don't start yet
+
+        //one-time Setup:  DMA to run after RX finishes
         irq_remove_handler(DMA_IRQ_0, norflash_next_async_read );
         irq_set_exclusive_handler(DMA_IRQ_0, self->dma.callback);
-      
         irq_set_enabled(DMA_IRQ_0, true);
+
         self->dma.first_run = false;
     }
 
-    if(self->dma.reads_left == 0){
-        irq_set_enabled(DMA_IRQ_0, false);
-        irq_remove_handler(DMA_IRQ_0, norflash_next_async_read);
-        dma_channel_cleanup(self->dma.ch_rx);
-        dma_channel_cleanup(self->dma.ch_tx);
-        memset(&self->dma, 0, sizeof(self->dma));
-        printf("dma cleaned up");
-        cs_deselect();
-        gpio_put(DEBUG_PIN_A, 1);
-    }
+    if(self->dma.reads_left == 0) end_dma_read(self);
+    
     else{
         self->dma.reads_left--;
-        //dma_channel_set_write_addr(self->dma.ch_rx, self->dma.next_dst_pt,false);
-        //dma_channel_set_trans_count(self->dma.ch_rx, self->dma.sizeof_struct, true);
-        //dma_channel_set_trans_count(self->dma.ch_tx, self->dma.sizeof_struct, true);
-        
-        //self->dma.next_dst_pt += self->dma.sizeof_struct;
-      
-        // start them exactly simultaneously to avoid races (in extreme cases the FIFO could overflow)
+        dma_channel_set_write_addr(self->dma.ch_rx, self->dma.dst_pt,false);
+        // start RX & TX  exactly simultaneously to avoid races.
         dma_start_channel_mask((1u << self->dma.ch_tx) | (1u << self->dma.ch_rx));
-      
-        
-    }
+    }       
+}
 
-       
+void norflash_abort_async_read(){
+    norflash_t *self = &chip1_singleton;
+    printf("norflash async read aborted\n");
+    end_dma_read(self);
 }

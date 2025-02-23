@@ -18,14 +18,19 @@
 #define NORFLASH_PIN_SCK (NORFLASH_PIN_RX + 2)
 #define NORFLASH_PIN_TX (NORFLASH_PIN_RX + 3)
 
-#define DEBUG_PIN_A 10
+#define NORFLASH_PAGE_SIZE 256
+#define NORFLASH_SECTOR_SIZE 0x1000
+#define NORFLASH_BLOCK_SIZE 0x10000
+
+#define NORFLASH_EMPTY_BYTE_VAL 0xFF
+//TODO add dual chip support
 
 typedef void(*norflash_rd_callback_t) (void);
 
 typedef struct norflash_dma{
     uint ch_tx;
     uint ch_rx;
-    void *next_dst_pt;
+    void *dst_pt;
     uint sizeof_struct;
     norflash_rd_callback_t callback;
     uint reads_left;
@@ -43,14 +48,13 @@ typedef struct norflash
     norflash_dma_t dma;
 } norflash_t;
 
-
+/*! \brief  Get the pointer to the first SPI-norflash chip data structure.
+ *  \return *norflash_t
+*/
 norflash_t* norflash_get_pt_singleton_chip1();
-
-
 
 /*! \brief  Initaliases the SPI norflash via a 1xSPI and tests the interface by queryin the device characteristics.
  *
- *  \param  self pointer to a norflash_t struct instance.
  *  \param  baudrate SPI clock freqfentie in Hz
  *
  *  \return enum pico_error_codes
@@ -63,20 +67,18 @@ norflash_t* norflash_get_pt_singleton_chip1();
  *  \remark SPI MISO signal (TX) is always NORFLASH_PIN_RX + 3 (so 15 if PIN_RX was not changed)
  *  \remark stdio is used to report on success or failure.
  */
-int norflash_init(norflash_t *self, uint baudrate);
+int norflash_init(uint baudrate);
 
 /*! \brief Erases the whole chip, while blocking. (takes +-40sec) 
-*   \param  self pointer to a norflash_t struct instance.
-*
+
 *   \return void
 *   \remark stdio is used to report on status.
 *   \remark there is no real validation of success.
 */
-void norflash_chip_erase(norflash_t *self);
+void norflash_chip_erase();
 
 /*! \brief Write a copy of self.page_buffer[256] to a page in the norflash, while blocking.
 *
-*   \param  self pointer to a norflash_t struct instance
 *   \param  flash_addr 3 byte starting norflash address to write to
 *   \param  len number of bytes to write
 *   \return enum pico_error_codes
@@ -85,18 +87,17 @@ void norflash_chip_erase(norflash_t *self);
             so : (least significant byte of flash_addr) > len 
 *   \remark stdio is used to report on success or failure.
 */
-int norflash_write_page(norflash_t *self, uint flash_addr, uint len);
+int norflash_write_page(uint flash_addr, uint len);
 
 /*! \brief Read successive bytes form the norflash, while blocking.
 *
-*   \param  self pointer to a norflash_t struct instance.
 *   \param  flash_addr 3 byte starting norflash address to write to.
 *   \param  out_buffer a pointer to the out buffer.
 *   \param  len number of bytes to read.
 *
 *   \return enum pico_error_codes
 */
-int norflash_read_blocking(norflash_t *self, uint flash_addr, void *out_buffer, uint len);
+int norflash_read_blocking(uint flash_addr, void *out_buffer, uint len);
 
 /*! \brief  Setup and start a repeated dma-read of a data structure type.
 *           The next norflash address is incremented after every read.
