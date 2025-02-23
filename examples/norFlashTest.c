@@ -25,10 +25,10 @@ int main()
 {
     norflash_t *w25q128jv = norflash_get_pt_singleton_chip1();
     stdio_init_all();
-    norflash_init(w25q128jv, 1000 * 1000);
+    norflash_init(w25q128jv, 1000 * 10);
 
     gpio_set_dir(DEBUG_PIN_A , GPIO_OUT);
-    gpio_put(DEBUG_PIN_A, 0);
+    
     gpio_set_function(DEBUG_PIN_A, GPIO_FUNC_SIO);
 
 

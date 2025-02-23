@@ -167,6 +167,9 @@ int norflash_init(norflash_t *self,  uint baudrate){
 
     gpio_set_function(NORFLASH_PIN_CS,   GPIO_FUNC_SIO);
     gpio_set_dir(NORFLASH_PIN_CS, GPIO_OUT);
+
+    gpio_put(DEBUG_PIN_A, 1);
+    cs_deselect();
      
     struct device_s {
         uint8_t mfg_id;
@@ -254,7 +257,7 @@ int norflash_start_async_read(
     norflash_rd_callback_t irq_callback,
     uint num_strucs_to_read
 ){
-    gpio_put(DEBUG_PIN_A, 1);
+    
     
     norflash_t *self = &chip1_singleton;
 
@@ -265,21 +268,11 @@ int norflash_start_async_read(
 
     self->dma.ch_tx = dma_claim_unused_channel(true);
     self->dma.ch_rx = dma_claim_unused_channel(true);
-
-    dma_channel_config c = dma_channel_get_default_config(self->dma.ch_tx);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
-    channel_config_set_dreq(&c, spi_get_dreq(spi_default, true));
-    channel_config_set_read_increment(&c, false);
-    channel_config_set_write_increment(&c, false); 
-    dma_channel_configure(self->dma.ch_tx, &c,
-                          &spi_get_hw(spi_default)->dr, // write address
-                          NULL, // read address
-                          self->dma.sizeof_struct, // element count (each element is of size transfer_data_size)
-                          false); // don't start yet
-
+    self->dma.first_run = true;
+    
     //setup dma to wait for TX to finish. We wait for dummy bytes to be received in sync to TX.
 
-    c = dma_channel_get_default_config(self->dma.ch_rx);
+    dma_channel_config c = dma_channel_get_default_config(self->dma.ch_rx);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_dreq(&c, spi_get_dreq(NORFLASH_SPI_PORT, false));
     channel_config_set_read_increment(&c, false);
@@ -311,7 +304,9 @@ int norflash_start_async_read(
     // Lets go... send the Cmd + Adr + Dummy for fast read. 
     
     dma_channel_start(self->dma.ch_rx);
-
+    
+    cs_select();
+    gpio_put(DEBUG_PIN_A, 0);
     for (size_t i = 0; i < NORFLASH_FAST_READ_CMDBUF_LEN; ++i) {
          spi_get_hw(NORFLASH_SPI_PORT)->dr = (uint32_t)cmd_addr.buf[i];
     }
@@ -321,12 +316,26 @@ int norflash_start_async_read(
 }
 
 void norflash_next_async_read(){
-    gpio_put(DEBUG_PIN_A, 1);
 
     norflash_t *self = &chip1_singleton;
 
+    // Clear the interrupt request.
+    dma_hw->ints0 = 1u << self->dma.ch_rx;
+ 
     if(self->dma.first_run){
-        dma_channel_config c = dma_channel_get_default_config(self->dma.ch_rx);
+        dma_channel_config c = dma_channel_get_default_config(self->dma.ch_tx);
+        channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+        channel_config_set_dreq(&c, spi_get_dreq(NORFLASH_SPI_PORT, true));
+        channel_config_set_read_increment(&c, false);
+        channel_config_set_write_increment(&c, false); 
+        dma_channel_configure(self->dma.ch_tx, &c,
+                          &spi_get_hw(NORFLASH_SPI_PORT)->dr, // write address
+                          self->page_buffer, // read address
+                          self->dma.sizeof_struct, // element count (each element is of size transfer_data_size)
+                          false); // don't start yet
+
+
+        c = dma_channel_get_default_config(self->dma.ch_rx);
         channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
         channel_config_set_dreq(&c, spi_get_dreq(NORFLASH_SPI_PORT, false));
         channel_config_set_read_increment(&c, false);
@@ -337,8 +346,9 @@ void norflash_next_async_read(){
             &spi_get_hw(NORFLASH_SPI_PORT)->dr, // read address
             self->dma.sizeof_struct, 
             false); // don't start yet
-        
+        irq_remove_handler(DMA_IRQ_0, norflash_next_async_read );
         irq_set_exclusive_handler(DMA_IRQ_0, self->dma.callback);
+      
         irq_set_enabled(DMA_IRQ_0, true);
         self->dma.first_run = false;
     }
@@ -347,23 +357,25 @@ void norflash_next_async_read(){
         irq_set_enabled(DMA_IRQ_0, false);
         irq_remove_handler(DMA_IRQ_0, norflash_next_async_read);
         dma_channel_cleanup(self->dma.ch_rx);
+        dma_channel_cleanup(self->dma.ch_tx);
         memset(&self->dma, 0, sizeof(self->dma));
         printf("dma cleaned up");
+        cs_deselect();
+        gpio_put(DEBUG_PIN_A, 1);
     }
     else{
         self->dma.reads_left--;
-        dma_channel_set_write_addr(self->dma.ch_rx, self->dma.next_dst_pt,false);
-        dma_channel_set_trans_count(self->dma.ch_rx, self->dma.sizeof_struct, false);
-        dma_channel_set_trans_count(self->dma.ch_tx, self->dma.sizeof_struct, false);
+        //dma_channel_set_write_addr(self->dma.ch_rx, self->dma.next_dst_pt,false);
+        //dma_channel_set_trans_count(self->dma.ch_rx, self->dma.sizeof_struct, true);
+        //dma_channel_set_trans_count(self->dma.ch_tx, self->dma.sizeof_struct, true);
         
         //self->dma.next_dst_pt += self->dma.sizeof_struct;
       
         // start them exactly simultaneously to avoid races (in extreme cases the FIFO could overflow)
         dma_start_channel_mask((1u << self->dma.ch_tx) | (1u << self->dma.ch_rx));
+      
+        
     }
 
-    gpio_put(DEBUG_PIN_A, 0);
-    // Clear the interrupt request.
-    dma_hw->ints0 = 1u << self->dma.ch_rx;
-
+       
 }
