@@ -17,8 +17,8 @@
 
 Read a data-structure of a given length to a given buffer. 
 This is done for a given number of times.
-sing a given callback function:
-You need to process the data every time a new data-structure is read.
+Use a given callback function to process the data every time a new data-structure is read.
+The buffer will be overwritten every time.
 
  ### norflash_next_async_read() :
  Used to request the next data-structure to be read.
