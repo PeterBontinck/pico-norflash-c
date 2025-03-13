@@ -19,7 +19,7 @@ int main()
     stdio_init_all();
     norflash_init(1000 * 10);
 
-    norflash_chip_erase();
+    //norflash_chip_erase();
 
     uint8_t test_buff[256];
 
@@ -43,5 +43,7 @@ int main()
     while(true) 
     {
         tight_loop_contents();
+        printf("wait for console\n");
+        norflash_from_console();
     }
 }

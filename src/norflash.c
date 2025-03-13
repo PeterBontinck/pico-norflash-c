@@ -383,3 +383,110 @@ void norflash_abort_async_read(){
     printf("norflash async read aborted\n");
     end_dma_read(self);
 }
+
+int pull_uint_form_console(uint number_of_bytes){
+
+    assert(number_of_bytes<=3);
+
+    //const uint32_t timeout_us  = 10000;
+    
+    int val = 0;
+    int num_c = number_of_bytes*2;
+
+    for(int i =0; i<num_c; i++ ){
+      
+        int c = getchar();
+            
+        if (c >= '0' && c <='9'){
+            c = c -  '0';
+        }else if (c >= 'a' && c <='f'){
+            c =  c - 'a' + 10;
+        }else{
+            assert(false);
+            return PICO_ERROR_INVALID_DATA;
+        }
+
+        printf("val = %x , c = %d\n", val, c );
+        val = val<< 4 | c;
+        printf("val = %x\n", val );
+    }
+    
+    return val;
+}
+
+int reading_from_console(){
+    norflash_t *self = &chip1_singleton;
+
+    uint adr = pull_uint_form_console(3);
+    if(adr < PICO_OK){printf("ERROR <adr>\n"); return adr;}
+
+    if(adr > self->max_addr){
+        printf("ERROR <adr> out of range\n"); 
+        return PICO_ERROR_INVALID_ADDRESS;
+    }
+    uint len = pull_uint_form_console(3);
+    if(len < PICO_OK) {printf("ERROR <len>\n"); return len;}
+    
+    if((adr + len) > self->max_addr){
+        printf("ERROR <len> out of range\n"); 
+        return PICO_ERROR_INVALID_ARG;
+    }
+    
+    for (int i = 0; i < len; i++){
+        uint8_t byte;
+        if (norflash_read_blocking(adr+i, &byte, 1) > PICO_OK){
+            printf("%02x ", byte);
+        }
+        else{
+            printf("ERROR reading norflash\n"); 
+            return PICO_ERROR_GENERIC;
+        }
+    
+    }
+    printf("\n");
+}
+
+int writing_from_console(){
+   
+}
+int erasing_from_console(){
+    
+}
+
+
+int norflash_from_console(){
+    int e = PICO_OK;
+    bool listening = true;
+
+    while (listening){
+        printf("L");
+        int c = getchar();
+        printf("%c", c);
+
+        if (c >= PICO_OK){
+            switch (c){
+                case 'Q':
+                    e = listening = false;
+                    break;
+                case 'R':
+                    printf("->");
+                    e = reading_from_console();
+                    break;
+                case 'W':
+                    e = writing_from_console();
+                    break;
+                case 'O':
+                    e = erasing_from_console();
+                    break;
+                default:
+                    e = PICO_ERROR_INVALID_DATA;
+                    break;
+            }
+        }
+        if(e !=PICO_OK){
+            listening = false;
+        }
+    }
+    return e;
+}
+
