@@ -132,7 +132,8 @@ static void wait_for_ready(norflash_t *self){
      }while (status & (1u << NORFLASH_BUSSY_BIT));
 }
 
-void norflash_chip_erase(norflash_t *self){
+void norflash_chip_erase(){
+    norflash_t *self = &chip1_singleton;
     assert(self->init_ok);
     
     write_enable(self);
@@ -141,7 +142,7 @@ void norflash_chip_erase(norflash_t *self){
 
     printf("Erasing  chip (+-40sec) .... ");
     wait_for_ready(self);
-    printf(" READY !\n");
+    printf("READY !\n");
 }
 
 void end_dma_read(norflash_t *self){
@@ -401,14 +402,16 @@ int pull_uint_form_console(uint number_of_bytes){
             c = c -  '0';
         }else if (c >= 'a' && c <='f'){
             c =  c - 'a' + 10;
+
+        }else if (c == 'S'){
+            return PICO_ERROR_NO_DATA;
         }else{
-            assert(false);
             return PICO_ERROR_INVALID_DATA;
         }
 
-        printf("val = %x , c = %d\n", val, c );
+        //printf("val = %x , c = %d\n", val, c );
         val = val<< 4 | c;
-        printf("val = %x\n", val );
+        //printf("val = %x\n", val );
     }
     
     return val;
@@ -417,18 +420,18 @@ int pull_uint_form_console(uint number_of_bytes){
 int reading_from_console(){
     norflash_t *self = &chip1_singleton;
 
-    uint adr = pull_uint_form_console(3);
-    if(adr < PICO_OK){printf("ERROR <adr>\n"); return adr;}
+    int adr = pull_uint_form_console(3);
+    if(adr < PICO_OK){printf("ERROR : while phrasing <adr>\n"); return adr;}
 
     if(adr > self->max_addr){
-        printf("ERROR <adr> out of range\n"); 
+        printf("ERROR : <adr> out of range\n"); 
         return PICO_ERROR_INVALID_ADDRESS;
     }
-    uint len = pull_uint_form_console(3);
-    if(len < PICO_OK) {printf("ERROR <len>\n"); return len;}
+    int len = pull_uint_form_console(3);
+    if(len < PICO_OK) {printf("ERROR  : while phrasing <len>\n"); return len;}
     
     if((adr + len) > self->max_addr){
-        printf("ERROR <len> out of range\n"); 
+        printf("ERROR : <len> out of range\n"); 
         return PICO_ERROR_INVALID_ARG;
     }
     
@@ -438,19 +441,70 @@ int reading_from_console(){
             printf("%02x ", byte);
         }
         else{
-            printf("ERROR reading norflash\n"); 
+            printf("ERROR : reading norflash\n"); 
             return PICO_ERROR_GENERIC;
-        }
-    
+        }    
     }
     printf("\n");
+    printf("ACK R\n");
+    return PICO_OK;
 }
 
 int writing_from_console(){
-   
+    norflash_t *self = &chip1_singleton;
+
+    int adr = pull_uint_form_console(3);
+    if(adr < PICO_OK){printf("ERROR : while phrasing <adr>\n"); return adr;}
+
+    if(adr > self->max_addr){
+        printf("ERROR : <adr> out of range\n"); 
+        return PICO_ERROR_INVALID_ADDRESS;
+    }
+    bool stop = false;
+    uint byte_counter = 0;
+    while (!stop){
+        int data = pull_uint_form_console(1);
+
+        if (byte_counter > NORFLASH_PAGE_SIZE){
+            printf("ERROR : more data then page size'\n"); 
+            return PICO_ERROR_BUFFER_TOO_SMALL;
+        }
+        
+        if(data == PICO_ERROR_NO_DATA){
+            stop = true;
+        }else if(data < PICO_OK){ 
+            printf("ERROR : while phrasing <Data>[%d]'\n", byte_counter); 
+            return PICO_ERROR_INVALID_DATA;
+        }else {
+            self->page_buffer[byte_counter] = data;
+            byte_counter++;
+        }
+    } 
+
+    norflash_write_page(adr, byte_counter);
+
+    printf("ACK W\n");
+    return PICO_OK;
 }
 int erasing_from_console(){
+    norflash_t *self = &chip1_singleton;
+
+    int adr = pull_uint_form_console(3);
     
+    if(adr != 0){
+        printf("ERROR : now only full erase is supported, Adr should be 0\n"); 
+        return PICO_ERROR_INVALID_ADDRESS;
+    }
+    int len = pull_uint_form_console(3);
+    if(len !=  0) {
+        printf("ERROR : only full erase is supported, len should be 0\n");
+        return PICO_ERROR_INVALID_DATA;
+    }
+       
+    norflash_chip_erase();
+
+    printf("ACK O\n");
+    return PICO_OK;
 }
 
 
@@ -459,17 +513,14 @@ int norflash_from_console(){
     bool listening = true;
 
     while (listening){
-        printf("L");
         int c = getchar();
-        printf("%c", c);
-
+        
         if (c >= PICO_OK){
             switch (c){
                 case 'Q':
-                    e = listening = false;
+                    listening = false;
                     break;
                 case 'R':
-                    printf("->");
                     e = reading_from_console();
                     break;
                 case 'W':
@@ -478,13 +529,25 @@ int norflash_from_console(){
                 case 'O':
                     e = erasing_from_console();
                     break;
+
+                case 0x09: //HT (Horizontal Tab)
+                case 0x0a: //LF (Line Feed)
+                case 0x0d:  //CR (Carriage Return)
+                case ' ':  //SPACE
+                case ',':
+                case ';':
+                    break; //drop command separation char
+
                 default:
                     e = PICO_ERROR_INVALID_DATA;
+                    printf("ERROR : while phrasing command : #%02x\n",c);
                     break;
             }
         }
         if(e !=PICO_OK){
             listening = false;
+            printf("ERROR : code %d\n", e);
+            while (PICO_ERROR_TIMEOUT != stdio_getchar_timeout_us(100));
         }
     }
     return e;

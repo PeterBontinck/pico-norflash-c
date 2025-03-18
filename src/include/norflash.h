@@ -46,7 +46,7 @@ typedef struct norflash
     bool init_ok;
     uint max_addr;
     uint addr_len;
-    uint8_t page_buffer[256];
+    uint8_t page_buffer[NORFLASH_PAGE_SIZE];
     uint8_t page_len;
     norflash_dma_t dma;
 } norflash_t;
@@ -135,9 +135,9 @@ void norflash_abort_async_read();
             This mode is Blocking
             All <values> are exchanged as asci hex bytes. <adr> and <len> 3 bytes
 *           R<adr><len>: Read from address, 
-            W<adr><data[max_page]>S : Write up to one page
-            O<adr><len> : Obliterate / erase
-            Q : quit write console mode
+            W<adr><data[]>S : Write up to one page
+            O<adr><len> : Obliterate / erase , only full erase suported <adr>=0 , <len>=0
+            Q : quit norflash_from_console loop
     \return enum pico_error_codes
 */
 int norflash_from_console();
