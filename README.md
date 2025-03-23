@@ -1,3 +1,4 @@
+
 # Use this library supports:
 - One SPI-norflash chip connected to a normal 1xSPI port of a RP2030/RP2350
 - Up to 128Mbit flash memory
@@ -26,7 +27,21 @@ The buffer will be overwritten every time.
 ### norflash_abort_async_read() :
 stop early.
 
-        
+## console Commands
 
+### norflash_from_console()
+Start Listening to console instructions to Read, Wite, Erase norflash.
+This mode is a Blocking loop.
+
+All \<values> are exchanged as lowercase asci hex-digits:
+- \<adr> and \<len> are 3 bytes (6 hex-digits).
+- \<data[ ]> is a string of bytes  (2 hex-digits per byte)
+- No spaces are allowed in between values or data bytes.
+
+#### R, W, S, O , Q commands (uppercase)
+- **R**\<adr>\<len> : Read from address, 
+- **W**\<adr>\<data[ ]>**S** : Write up to one page. (don't forget the '**S**' to stop/terminate the data )
+- **O**\<adr>\<len> : Obliterate / erase , only full erase supported \<adr>=0 , \<len>=0
+- **Q** : quit norflash_from_console loop
 
 

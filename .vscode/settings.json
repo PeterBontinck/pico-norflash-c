@@ -47,4 +47,10 @@
     "cSpell.words": [
         "norflash"
     ]
+
+    ,"editor.rulers": [
+    80,
+    100,
+    130
+  ],
 }
