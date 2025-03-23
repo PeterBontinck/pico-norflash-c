@@ -540,7 +540,7 @@ int norflash_from_console(){
 
                 default:
                     e = PICO_ERROR_INVALID_DATA;
-                    printf("ERROR : while phrasing command : #%02x\n",c);
+                    printf("ERROR : while parsing command : #%02x\n",c);
                     break;
             }
         }

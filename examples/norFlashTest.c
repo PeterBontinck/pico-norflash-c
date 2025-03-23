@@ -17,7 +17,7 @@ void my_callback(){
 int main()
 {
     stdio_init_all();
-    norflash_init(1000 * 10);
+    norflash_init(1000 * 1000); //1Mhz
 
     //norflash_chip_erase();
 
