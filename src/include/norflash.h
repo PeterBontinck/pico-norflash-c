@@ -23,6 +23,9 @@
 #define NORFLASH_BLOCK_SIZE 0x10000
 
 #define NORFLASH_EMPTY_BYTE_VAL 0xFF
+
+//TODO add get_page_buf function
+//TODO add sector  + block erase.
 //TODO add dual chip support
 
 typedef void(*norflash_rd_callback_t) (void);
@@ -43,7 +46,7 @@ typedef struct norflash
     bool init_ok;
     uint max_addr;
     uint addr_len;
-    uint8_t page_buffer[256];
+    uint8_t page_buffer[NORFLASH_PAGE_SIZE];
     uint8_t page_len;
     norflash_dma_t dma;
 } norflash_t;
@@ -126,6 +129,19 @@ void norflash_next_async_read();
 *   to abort before the given the number of repeated dma-reads .
 */
 void norflash_abort_async_read();
+
+
+/*! \brief  Listen to console instructions to read, wite, erase norflash. 
+            This mode is Blocking
+            All <values> are exchanged as asci hex bytes. <adr> and <len> 3 bytes
+*           R<adr><len>: Read from address, 
+            W<adr><data[]>S : Write up to one page
+            O<adr><len> : Obliterate / erase , only full erase suported <adr>=0 , <len>=0
+            Q : quit norflash_from_console loop
+    \return enum pico_error_codes
+*/
+int norflash_from_console();
+
 
 void print_byte_buffer(uint8_t *buf, uint len, uint rows);
 
