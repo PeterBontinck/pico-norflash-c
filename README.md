@@ -30,8 +30,8 @@ stop early.
 ## console Commands
 
 ### norflash_from_console()
-Start Listening to console instructions to Read, Wite, Erase norflash.
-This mode is a Blocking loop.
+Start listening to console instructions to Read, Write, Erase norflash.
+This mode is a **blocking loop**.
 
 All \<values> are exchanged as lowercase asci hex-digits:
 - \<adr> and \<len> are 3 bytes (6 hex-digits).
