@@ -97,10 +97,8 @@ int norflash_write_page(uint flash_addr, uint len);
 *   \param  flash_addr 3 byte starting norflash address to write to.
 *   \param  out_buffer a pointer to the out buffer.
 *   \param  len number of bytes to read.
-*
-*   \return enum pico_error_codes
 */
-int norflash_read_blocking(uint flash_addr, void *out_buffer, uint len);
+void norflash_read_blocking(uint flash_addr, void *out_buffer, uint len);
 
 /*! \brief  Setup and start a repeated dma-read of a data structure type.
 *           The next norflash address is incremented after every read.

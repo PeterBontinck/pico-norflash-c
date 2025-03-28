@@ -211,7 +211,7 @@ int norflash_init(uint baudrate){
     return PICO_OK;
 }
 
-int norflash_read_blocking(uint flash_addr, void* out_buffer, uint len){
+void norflash_read_blocking(uint flash_addr, void* out_buffer, uint len){
     norflash_t *self = &chip1_singleton;
     assert(self->init_ok);
     
@@ -221,6 +221,7 @@ int norflash_read_blocking(uint flash_addr, void* out_buffer, uint len){
     spi_write_blocking(NORFLASH_SPI_PORT, cmd_addr.buf, NORFLASH_FAST_READ_CMDBUF_LEN); 
     spi_read_blocking(NORFLASH_SPI_PORT, 0, out_buffer, len);
     cs_deselect();
+
 }
 
 
@@ -437,13 +438,8 @@ int reading_from_console(){
     
     for (int i = 0; i < len; i++){
         uint8_t byte;
-        if (norflash_read_blocking(adr+i, &byte, 1) > PICO_OK){
-            printf("%02x ", byte);
-        }
-        else{
-            printf("ERROR : reading norflash\n"); 
-            return PICO_ERROR_GENERIC;
-        }    
+        norflash_read_blocking(adr+i, &byte, 1);
+        printf("%02x ", byte);
     }
     printf("\n");
     printf("ACK R\n");
