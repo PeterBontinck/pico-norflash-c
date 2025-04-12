@@ -15,7 +15,7 @@ void my_callback(){
 
 
 int main()
-{
+r{
     stdio_init_all();
     norflash_init(1000 * 1000); //1Mhz
 

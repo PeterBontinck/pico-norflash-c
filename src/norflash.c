@@ -151,7 +151,7 @@ void end_dma_read(norflash_t *self){
     dma_channel_cleanup(self->dma.ch_rx);
     dma_channel_cleanup(self->dma.ch_tx);
     memset(&self->dma, 0, sizeof(self->dma));
-    printf("dma cleaned up\n");
+    //printf("dma cleaned up\n");
     cs_deselect();
 }
 
