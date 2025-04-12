@@ -147,9 +147,14 @@ void norflash_chip_erase(){
 
 void end_dma_read(norflash_t *self){
     irq_set_enabled(DMA_IRQ_0, false);
+
     irq_remove_handler(DMA_IRQ_0, norflash_next_async_read);
+
     dma_channel_cleanup(self->dma.ch_rx);
+    dma_channel_unclaim(self->dma.ch_rx);
+    
     dma_channel_cleanup(self->dma.ch_tx);
+    dma_channel_unclaim(self->dma.ch_tx);
     memset(&self->dma, 0, sizeof(self->dma));
     //printf("dma cleaned up\n");
     cs_deselect();
@@ -295,6 +300,15 @@ int norflash_start_async_read(
         false); // don't start yet   
 
     dma_channel_set_irq0_enabled(self->dma.ch_rx, true);
+
+    void *h = irq_get_exclusive_handler(DMA_IRQ_0);
+    
+    if(h) {
+            irq_remove_handler(DMA_IRQ_0, h);
+            h = irq_get_exclusive_handler(DMA_IRQ_0);
+           }
+
+
     irq_set_exclusive_handler(DMA_IRQ_0, norflash_next_async_read);
 
     if((self->dma.ch_rx < 0) || (self->dma.ch_tx < 0)){
