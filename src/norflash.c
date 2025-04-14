@@ -145,10 +145,15 @@ void norflash_chip_erase(){
     printf("READY !\n");
 }
 
+void next_async_read_irq (void){
+    (void) norflash_next_async_read(); // as IRQ we cant use the retrun value
+}
+
+
 void end_dma_read(norflash_t *self){
     irq_set_enabled(DMA_IRQ_0, false);
 
-    irq_remove_handler(DMA_IRQ_0, norflash_next_async_read);
+    irq_remove_handler(DMA_IRQ_0, next_async_read_irq);
 
     dma_channel_cleanup(self->dma.ch_rx);
     dma_channel_unclaim(self->dma.ch_rx);
@@ -270,9 +275,6 @@ int norflash_write_page(uint flash_addr, uint len){
 }
 
 
-void next_async_read_irq (void){
-    norflash_next_async_read();
-}
 
 int norflash_start_async_read(
     uint flash_addr,
@@ -381,7 +383,7 @@ int norflash_next_async_read(){
             false); // don't start yet
 
         //one-time Setup:  DMA to run after RX finishes
-        irq_remove_handler(DMA_IRQ_0, next_async_read_irq );
+        irq_remove_handler(DMA_IRQ_0, norflash_start_async_read );
         irq_set_exclusive_handler(DMA_IRQ_0, self->dma.callback);
         irq_set_enabled(DMA_IRQ_0, true);
 
