@@ -383,7 +383,7 @@ int norflash_next_async_read(){
             false); // don't start yet
 
         //one-time Setup:  DMA to run after RX finishes
-        irq_remove_handler(DMA_IRQ_0, norflash_start_async_read );
+        irq_remove_handler(DMA_IRQ_0, next_async_read_irq );
         irq_set_exclusive_handler(DMA_IRQ_0, self->dma.callback);
         irq_set_enabled(DMA_IRQ_0, true);
 
