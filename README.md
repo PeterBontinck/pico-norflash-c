@@ -22,7 +22,9 @@ Use a given callback function to process the data every time a new data-structur
 The buffer will be overwritten every time.
 
  ### norflash_next_async_read() :
- Used to request the next data-structure to be read.
+ Used to request the next data-structure to be read and to end en cleanup a async read.
+ This ***function is mandatory in the callback function*** even if single repetition.
+
 
 ### norflash_abort_async_read() :
 stop early.

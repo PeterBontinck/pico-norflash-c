@@ -122,9 +122,11 @@ int norflash_start_async_read(
 
 /*! \brief  Used in the callback of \b norflash_start_async_read(), to get the next data structure.
 */
-void norflash_next_async_read();
+int norflash_next_async_read();
 /*! \brief  Used after a \b norflash_start_async_read() , 
 *   to abort before the given the number of repeated dma-reads .
+*   This ***function is mandatory in the callback function*** even if single repetition.
+*  \return Number of async reads left. If 0 the IRQ and DMA has been freed
 */
 void norflash_abort_async_read();
 

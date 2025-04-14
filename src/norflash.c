@@ -270,6 +270,10 @@ int norflash_write_page(uint flash_addr, uint len){
 }
 
 
+void next_async_read_irq (void){
+    norflash_next_async_read();
+}
+
 int norflash_start_async_read(
     uint flash_addr,
     uint struct_size,
@@ -309,7 +313,7 @@ int norflash_start_async_read(
            }
 
 
-    irq_set_exclusive_handler(DMA_IRQ_0, norflash_next_async_read);
+    irq_set_exclusive_handler(DMA_IRQ_0, next_async_read_irq);
 
     if((self->dma.ch_rx < 0) || (self->dma.ch_tx < 0)){
         printf("ERROR norflash async read, not enough dma channels free\n");
@@ -345,7 +349,7 @@ int norflash_start_async_read(
     return PICO_OK;
 }
 
-void norflash_next_async_read(){
+int norflash_next_async_read(){
     norflash_t *self = &chip1_singleton;
 
     // Clear the interrupt request.
@@ -377,7 +381,7 @@ void norflash_next_async_read(){
             false); // don't start yet
 
         //one-time Setup:  DMA to run after RX finishes
-        irq_remove_handler(DMA_IRQ_0, norflash_next_async_read );
+        irq_remove_handler(DMA_IRQ_0, next_async_read_irq );
         irq_set_exclusive_handler(DMA_IRQ_0, self->dma.callback);
         irq_set_enabled(DMA_IRQ_0, true);
 
@@ -392,6 +396,8 @@ void norflash_next_async_read(){
         // start RX & TX  exactly simultaneously to avoid races.
         dma_start_channel_mask((1u << self->dma.ch_tx) | (1u << self->dma.ch_rx));
     }       
+
+    return self->dma.reads_left;
 }
 
 void norflash_abort_async_read(){
