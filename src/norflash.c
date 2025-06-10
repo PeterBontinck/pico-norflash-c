@@ -4,6 +4,8 @@
 # define IFDBUG(__f) __f
 #endif
 
+#define NORFLASH_WORK_AROUND
+
 #include <stdio.h>
 #include "include/norflash.h"
 #include "norflash_cmd.h"
@@ -356,6 +358,22 @@ int norflash_next_async_read(){
 
     // Clear the interrupt request.
     dma_hw->ints0 = 1u << self->dma.ch_rx;
+
+    while (spi_is_busy(NORFLASH_SPI_PORT)) {
+
+        //BUG find rootcase of rare early IRQ triggers
+        #ifndef NORFLASH_WORK_AROUND
+        //the irq is called to early for some reason???
+        // as a work around we can wait in inside the ISR for the spi to finish.
+        assert(false); 
+        #endif
+        tight_loop_contents(); 
+    }
+
+    if(self->dma.reads_left == 0) {
+        end_dma_read(self);
+        return -1;
+    }
     
     if(self->dma.first_run){
         //one-time Setup:  TX-dma, to tick SCK so we can receive.
@@ -390,22 +408,20 @@ int norflash_next_async_read(){
         self->dma.first_run = false;
     }
 
-    if(self->dma.reads_left == 0) end_dma_read(self);
+     
+    self->dma.reads_left--;
     
-    else{
-        self->dma.reads_left--;
-        dma_channel_set_write_addr(self->dma.ch_rx, self->dma.dst_pt,false);
-        // start RX & TX  exactly simultaneously to avoid races.
-        dma_start_channel_mask((1u << self->dma.ch_tx) | (1u << self->dma.ch_rx));
-    }       
-
+    dma_channel_set_write_addr(self->dma.ch_rx, self->dma.dst_pt,false);
+    // start RX & TX  exactly simultaneously to avoid races.
+    dma_start_channel_mask((1u << self->dma.ch_tx) | (1u << self->dma.ch_rx));
+    
     return self->dma.reads_left;
 }
 
 void norflash_abort_async_read(){
     norflash_t *self = &chip1_singleton;
-    printf("norflash async read aborted\n");
     end_dma_read(self);
+    printf("norflash async read aborted\n");
 }
 
 int pull_uint_form_console(uint number_of_bytes){
