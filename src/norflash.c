@@ -164,7 +164,7 @@ void end_dma_read(norflash_t *self){
     dma_channel_unclaim(self->dma.ch_tx);
     memset(&self->dma, 0, sizeof(self->dma));
     self->async_busy=false;
-    //printf("dma cleaned up\n");
+    printf("dma cleaned up\n");
     cs_deselect();
 }
 
@@ -295,6 +295,7 @@ int norflash_start_async_read(
     }
 
     self->async_busy = true;
+    self->async_data_ready = false;
     self->dma.sizeof_struct = struct_size;
     self->dma.dst_pt = dst;
     self->dma.callback = irq_callback;
@@ -361,17 +362,21 @@ int norflash_start_async_read(
     return PICO_OK;
 }
 
+int norflash_pauze_async_read(){ 
+    norflash_t *self = &chip1_singleton;
+    dma_hw->ints0 = 1u << self->dma.ch_rx;
+    self->async_data_ready = true;
+    return self->dma.reads_left;
+}
+
 int norflash_next_async_read(){
+   
     norflash_t *self = &chip1_singleton;
 
     // Clear the interrupt request.
     dma_hw->ints0 = 1u << self->dma.ch_rx;
-
-    if(self->dma.reads_left == 0) {
-        end_dma_read(self);
-        return -1;
-    }
-    
+    self->async_data_ready = false;
+   
     if(self->dma.first_run){
         while (spi_is_readable(NORFLASH_SPI_PORT))
         (void)spi_get_hw(NORFLASH_SPI_PORT)->dr;
@@ -383,10 +388,10 @@ int norflash_next_async_read(){
         channel_config_set_read_increment(&c, false);
         channel_config_set_write_increment(&c, false); 
         dma_channel_configure(self->dma.ch_tx, &c,
-                          &spi_get_hw(NORFLASH_SPI_PORT)->dr, // write address
-                          NULL, // don't care data on TX, only SCK needs to tick.
-                          self->dma.sizeof_struct, // element count (each element is of size transfer_data_size)
-                          false); // don't start yet
+            &spi_get_hw(NORFLASH_SPI_PORT)->dr, // write address
+            NULL, // don't care data on TX, only SCK needs to tick.
+            self->dma.sizeof_struct, // element count (each element is of size transfer_data_size)
+            false); // don't start yet
 
         //one-time Setup:  RX-dma
         c = dma_channel_get_default_config(self->dma.ch_rx);
@@ -406,10 +411,16 @@ int norflash_next_async_read(){
         irq_set_enabled(DMA_IRQ_0, true);
 
         self->dma.first_run = false;
+        
+        self->dma.reads_left++; //after first run the first data still needs to be read
     }
-
-     
+ 
     self->dma.reads_left--;
+
+    if(self->dma.reads_left == 0) {
+        end_dma_read(self);
+        return 0;
+    }
     
     dma_channel_set_write_addr(self->dma.ch_rx, self->dma.dst_pt,false);
     // start RX & TX  exactly simultaneously to avoid races.
