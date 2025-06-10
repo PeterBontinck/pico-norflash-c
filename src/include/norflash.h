@@ -49,6 +49,7 @@ typedef struct norflash
     uint8_t page_buffer[NORFLASH_PAGE_SIZE];
     uint8_t page_len;
     norflash_dma_t dma;
+    bool async_busy;
 } norflash_t;
 
 /*! \brief  Get the pointer to the first SPI-norflash chip data structure.

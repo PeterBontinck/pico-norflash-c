@@ -163,6 +163,7 @@ void end_dma_read(norflash_t *self){
     dma_channel_cleanup(self->dma.ch_tx);
     dma_channel_unclaim(self->dma.ch_tx);
     memset(&self->dma, 0, sizeof(self->dma));
+    self->async_busy=false;
     //printf("dma cleaned up\n");
     cs_deselect();
 }
@@ -183,6 +184,7 @@ int norflash_init(uint baudrate){
 
     memset((void*) self,0, sizeof(self));
     self->baudrate = baudrate;
+    self->async_busy=false;
 
     spi_init(NORFLASH_SPI_PORT, baudrate);   
     gpio_set_function(NORFLASH_PIN_RX, GPIO_FUNC_SPI);
@@ -287,6 +289,12 @@ int norflash_start_async_read(
 ){   
     norflash_t *self = &chip1_singleton;
 
+    while (self->async_busy == true ) {
+        //printf("wait for dma to free");
+        tight_loop_contents(); //wait for previous async read to end. 
+    }
+
+    self->async_busy = true;
     self->dma.sizeof_struct = struct_size;
     self->dma.dst_pt = dst;
     self->dma.callback = irq_callback;
@@ -359,23 +367,15 @@ int norflash_next_async_read(){
     // Clear the interrupt request.
     dma_hw->ints0 = 1u << self->dma.ch_rx;
 
-    while (spi_is_busy(NORFLASH_SPI_PORT)) {
-
-        //BUG find rootcase of rare early IRQ triggers
-        #ifndef NORFLASH_WORK_AROUND
-        //the irq is called to early for some reason???
-        // as a work around we can wait in inside the ISR for the spi to finish.
-        assert(false); 
-        #endif
-        tight_loop_contents(); 
-    }
-
     if(self->dma.reads_left == 0) {
         end_dma_read(self);
         return -1;
     }
     
     if(self->dma.first_run){
+        while (spi_is_readable(NORFLASH_SPI_PORT))
+        (void)spi_get_hw(NORFLASH_SPI_PORT)->dr;
+
         //one-time Setup:  TX-dma, to tick SCK so we can receive.
         dma_channel_config c = dma_channel_get_default_config(self->dma.ch_tx);
         channel_config_set_transfer_data_size(&c, DMA_SIZE_8);

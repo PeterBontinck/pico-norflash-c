@@ -39,10 +39,8 @@ int main()
    
     printf("start DMA \n");
     norflash_start_async_read(ADRR_TO_WRITE,3,norflash_get_pt_singleton_chip1()->page_buffer,my_callback,4);
-    sleep_us(30000);
+    
     norflash_start_async_read(ADRR_TO_WRITE,3,norflash_get_pt_singleton_chip1()->page_buffer,my_callback,4);
-    sleep_us(200);
-    norflash_abort_async_read();
 
     while(true) 
     {
